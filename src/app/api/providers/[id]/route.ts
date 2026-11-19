@@ -19,6 +19,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
             providerId: current.providerId,
             label: typeof body.label === "string" ? body.label : undefined,
             secret: typeof body.secret === "string" ? body.secret : undefined,
+            clearSecret: body.clearSecret === true,
             metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata as Record<string, unknown> : undefined,
             enabled: body.enabled === undefined ? undefined : body.enabled === true,
             priority: typeof body.priority === "number" ? body.priority : undefined,

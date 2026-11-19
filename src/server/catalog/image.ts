@@ -11,6 +11,7 @@ import { TOAPIS_IMAGE_CAPABILITIES } from "@/server/catalog/toapis";
 import { GOOGLE_IMAGE_CAPABILITIES } from "@/server/catalog/google";
 import { GATEWAY_IMAGE_CAPABILITIES } from "@/server/catalog/gateway";
 import { RUNWARE_IMAGE_CAPABILITIES } from "@/server/catalog/runware";
+import { FREE_PROVIDER_IMAGE_CAPABILITIES } from "@/server/catalog/free-providers";
 
 export const IMAGE_CAPABILITIES: Record<string, ImageModelCapability> = {
     ...EXTERNAL_IMAGE_CAPABILITIES,
@@ -19,6 +20,7 @@ export const IMAGE_CAPABILITIES: Record<string, ImageModelCapability> = {
     ...GATEWAY_IMAGE_CAPABILITIES,
     ...TOAPIS_IMAGE_CAPABILITIES,
     ...RUNWARE_IMAGE_CAPABILITIES,
+    ...FREE_PROVIDER_IMAGE_CAPABILITIES,
 };
 
 export const IMAGE_CAPABILITIES_LIST = Object.values(IMAGE_CAPABILITIES).filter(c => !c.deprecated)

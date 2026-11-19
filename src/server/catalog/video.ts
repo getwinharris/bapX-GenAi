@@ -10,6 +10,7 @@ import { TOAPIS_VIDEO_CAPABILITIES } from "@/server/catalog/toapis";
 import { GOOGLE_VIDEO_CAPABILITIES } from "@/server/catalog/google";
 import { GATEWAY_VIDEO_CAPABILITIES } from "@/server/catalog/gateway";
 import { RUNWARE_VIDEO_CAPABILITIES } from "@/server/catalog/runware";
+import { FREE_PROVIDER_VIDEO_CAPABILITIES } from "@/server/catalog/free-providers";
 
 export const VIDEO_CAPABILITIES: Record<string, ModelCapabilities> = {
     ...EXTERNAL_VIDEO_CAPABILITIES,
@@ -18,11 +19,12 @@ export const VIDEO_CAPABILITIES: Record<string, ModelCapabilities> = {
     ...GATEWAY_VIDEO_CAPABILITIES,
     ...TOAPIS_VIDEO_CAPABILITIES,
     ...RUNWARE_VIDEO_CAPABILITIES,
+    ...FREE_PROVIDER_VIDEO_CAPABILITIES,
 };
 
 /** Ordered list of group IDs for display */
 export const VIDEO_CAPABILITY_GROUPS = [
-    "Magnific", "Google AI Studio", "Google Vertex AI", "Vercel AI Gateway", "ToAPIs", "Runware",
+    "Pollinations", "Together AI", "Hugging Face", "Magnific", "Google AI Studio", "Google Vertex AI", "Vercel AI Gateway", "ToAPIs", "Runware",
 ];
 
 /** Get all capabilities for models in a given group */

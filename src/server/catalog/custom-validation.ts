@@ -106,7 +106,7 @@ export function assertCustomModelCapabilities(value: unknown, mediaType: "image"
     if (model.provider === "magnific" && !getMagnificContract(model.provider_model_id, mediaType)
         || model.provider === "toapis" && !getToapisContract(model.provider_model_id, mediaType, model.provider_action)
         || model.provider === "runware" && !getRunwareContract(model.provider_model_id, mediaType)) throw new Error("ERR_CUSTOM_MODEL_ADAPTER_REQUIRED");
-    if (model.provider !== "runware" && model.provider_model_id.includes("@")) throw new Error("ERR_CUSTOM_MODEL_INVALID");
+    if (!["runware", "cloudflare"].includes(model.provider) && model.provider_model_id.includes("@")) throw new Error("ERR_CUSTOM_MODEL_INVALID");
     for (const fields of [model.custom_fields, model.media_slots]) {
         if (new Set(fields.map(field => field.id)).size !== fields.length) throw new Error("ERR_CUSTOM_MODEL_INVALID");
     }

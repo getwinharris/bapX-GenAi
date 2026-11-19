@@ -35,7 +35,7 @@ export function StudioEmpty({ mode, onIdea, supportsPrompt }: { supportsPrompt: 
             <h1 className="font-display text-2xl leading-tight tracking-tight sm:text-4xl">{t(ready ? !supportsPrompt ? "referenceTitle" : mode === "image" ? "imageTitle" : "videoTitle" : hasConnection ? "noModelsTitle" : "connectTitle")}</h1>
             <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">{catalog.error ? command("modelsLoadError") : t(ready ? supportsPrompt ? "readyHint" : "referenceHint" : hasConnection ? "noModelsHint" : "connectHint")}</p>
             {catalog.error ? <button type="button" className="mt-5 rounded-lg px-4 py-3 text-sm text-primary" onClick={() => void catalog.refresh()}>{command("retryModels")}</button>
-                : !ready && !catalog.isLoading ? <Link href={`/${locale}/settings`} className={`${buttonVariants()} mt-6 min-h-11 px-5`}>{hasConnection ? command("manageProviders") : t("connectAction")}<ArrowRight className="size-4" /></Link>
+                : !ready && !catalog.isLoading ? <div className="mt-6 flex flex-col items-center gap-3"><Link href={`/${locale}/settings`} className={`${buttonVariants()} min-h-11 px-5`}>{hasConnection ? command("manageProviders") : t("connectAction")}<ArrowRight className="size-4" /></Link><p className="text-xs text-muted-foreground">{t("freeProvidersNote")}</p></div>
                 : ready && supportsPrompt && <div className="mt-6 flex flex-wrap justify-center gap-2">{(mode === "image" ? [
                     { label: "ideaProduct", prompt: "productPrompt", icon: Camera },
                     { label: "ideaScene", prompt: "scenePrompt", icon: Clapperboard },

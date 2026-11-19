@@ -7,8 +7,9 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { STORAGE_ROOT } from "@/server/config/storage-paths";
 import type { ModelCapabilities } from "@/models/capabilities/types";
-import { isProviderId, PROVIDER_DEFINITIONS } from "@/providers/definitions";
+import { getProviderDefinition, isProviderId, PROVIDER_DEFINITIONS } from "@/providers/definitions";
 import type { ProviderConnectionContext, ProviderId } from "@/providers/types";
+import { normalizeOllamaBaseUrl, validateCloudflareAccountId } from "@/lib/provider-helpers";
 import { assertCustomModelCapabilities, hasBuiltInCapability } from "@/server/catalog/custom-validation";
 
 const CONFIG_FILE = path.join(STORAGE_ROOT, "provider-runtime-config.json");
@@ -185,9 +186,11 @@ export async function listProviderConnections(): Promise<ProviderConnectionRecor
 /** Saved connections take precedence over environment credentials, including disabling all keys. */
 export async function getConnectedProviderIds(): Promise<Set<ProviderId>> {
     const connections = await listProviderConnections();
-    return new Set(PROVIDER_DEFINITIONS.filter(({ id }) => {
-        const saved = connections.filter((entry) => entry.providerId === id);
-        return saved.length ? saved.some((entry) => entry.enabled && entry.secretConfigured) : Boolean(connectionFromEnv(id));
+    return new Set(PROVIDER_DEFINITIONS.filter((def) => {
+        const saved = connections.filter((entry) => entry.providerId === def.id);
+        return saved.length
+            ? saved.some((entry) => entry.enabled && (def.secretOptional || entry.secretConfigured))
+            : Boolean(connectionFromEnv(def.id));
     }).map(({ id }) => id));
 }
 
@@ -225,20 +228,23 @@ export async function resolveProviderConnection(providerId: ProviderId): Promise
 }
 
 function selectSavedConnection(config: StoredConfig, providerId: ProviderId): ProviderConnectionContext | undefined {
-    const candidates = config.connections.filter((candidate) => candidate.providerId === providerId && candidate.enabled && candidate.secretCiphertext && candidate.lastHealth !== "unhealthy")
+    const def = getProviderDefinition(providerId);
+    const hasAuth = (candidate: StoredConnection) => def.secretOptional || Boolean(candidate.secretCiphertext);
+    const candidates = config.connections.filter((candidate) => candidate.providerId === providerId && candidate.enabled && hasAuth(candidate) && candidate.lastHealth !== "unhealthy")
         .sort((a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt));
-    const fallback = candidates.length ? candidates : config.connections.filter((candidate) => candidate.providerId === providerId && candidate.enabled && candidate.secretCiphertext)
+    const fallback = candidates.length ? candidates : config.connections.filter((candidate) => candidate.providerId === providerId && candidate.enabled && hasAuth(candidate))
         .sort((a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt));
     const bestPriority = fallback[0]?.priority;
     const eligible = bestPriority === undefined ? [] : fallback.filter((candidate) => candidate.priority === bestPriority);
     const cursor = selectionCursors.get(providerId) ?? 0;
     const entry = eligible.length ? eligible[cursor % eligible.length] : undefined;
     if (eligible.length) selectionCursors.set(providerId, cursor + 1);
-    return entry ? { id: entry.id, providerId: entry.providerId, secret: decryptSecret(entry.secretCiphertext!), metadata: structuredClone(entry.metadata) } : undefined;
+    return entry ? { id: entry.id, providerId: entry.providerId, secret: entry.secretCiphertext ? decryptSecret(entry.secretCiphertext) : undefined, metadata: structuredClone(entry.metadata) } : undefined;
 }
 
-export async function saveProviderConnection(input: { id?: string; providerId: ProviderId; label?: string; secret?: string; metadata?: Record<string, unknown>; enabled?: boolean; priority?: number }): Promise<ProviderConnectionRecord> {
+export async function saveProviderConnection(input: { id?: string; providerId: ProviderId; label?: string; secret?: string; clearSecret?: boolean; metadata?: Record<string, unknown>; enabled?: boolean; priority?: number }): Promise<ProviderConnectionRecord> {
     if (!isProviderId(input.providerId)) throw new Error("ERR_PROVIDER_CONNECTION_INVALID");
+    const definition = getProviderDefinition(input.providerId);
     return mutate((config) => {
         const now = new Date().toISOString();
         const existing = input.id ? config.connections.find((candidate) => candidate.id === input.id) : undefined;
@@ -246,18 +252,27 @@ export async function saveProviderConnection(input: { id?: string; providerId: P
         if (existing && existing.providerId !== input.providerId) throw new Error("ERR_PROVIDER_CONNECTION_PROVIDER_MISMATCH");
         const label = input.label?.trim() ?? existing?.label;
         if (!label || label.length > 120 || /[\u0000-\u001f\u007f]/.test(label)) throw new Error("ERR_PROVIDER_LABEL_INVALID");
-        const secretCiphertext = input.secret?.trim() ? encryptSecret(input.secret.trim()) : existing?.secretCiphertext;
-        if (!secretCiphertext) throw new Error("ERR_PROVIDER_SECRET_REQUIRED");
+        const secretCiphertext = input.clearSecret && definition.secretOptional
+            ? undefined
+            : input.secret?.trim() ? encryptSecret(input.secret.trim()) : existing?.secretCiphertext;
+        if (!secretCiphertext && !definition.secretOptional) throw new Error("ERR_PROVIDER_SECRET_REQUIRED");
+        const metadata = validateMetadata(input.metadata ?? existing?.metadata ?? {});
+        if (input.providerId === "ollama") {
+            metadata.baseUrl = normalizeOllamaBaseUrl(metadata.baseUrl);
+        } else if (input.providerId === "cloudflare") {
+            metadata.accountId = validateCloudflareAccountId(metadata.accountId);
+        }
         const entry: StoredConnection = {
             id: existing?.id ?? `conn_${randomUUID()}`,
             providerId: input.providerId,
             label,
             enabled: input.enabled ?? existing?.enabled ?? true,
             priority: Number.isInteger(input.priority) && (input.priority as number) >= 0 && (input.priority as number) <= 10_000 ? input.priority as number : existing?.priority ?? 100,
-            metadata: validateMetadata(input.metadata ?? existing?.metadata ?? {}),
-            secretCiphertext,
+            metadata,
+            ...(secretCiphertext ? { secretCiphertext } : {}),
             lastHealth: existing?.lastHealth ?? "unknown",
             lastHealthAt: existing?.lastHealthAt,
+            lastQuotaSummary: existing?.lastQuotaSummary,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
         };
@@ -275,10 +290,15 @@ export async function deleteProviderConnection(id: string): Promise<boolean> {
     });
 }
 
-export async function markProviderConnectionHealth(id: string, health: "healthy" | "unhealthy"): Promise<void> {
+export async function markProviderConnectionHealth(id: string, health: "healthy" | "unhealthy", quotaSummary?: string): Promise<void> {
     await mutate((config) => {
         const entry = config.connections.find((candidate) => candidate.id === id);
-        if (entry) { entry.lastHealth = health; entry.lastHealthAt = new Date().toISOString(); entry.updatedAt = new Date().toISOString(); }
+        if (entry) {
+            entry.lastHealth = health;
+            entry.lastHealthAt = new Date().toISOString();
+            if (quotaSummary !== undefined) entry.lastQuotaSummary = quotaSummary;
+            entry.updatedAt = new Date().toISOString();
+        }
     });
 }
 
@@ -306,7 +326,7 @@ export async function saveDiscoveredModels(providerId: ProviderId, models: Array
     return mutate((config) => {
         const now = new Date().toISOString();
         for (const model of models.slice(0, 500)) {
-            if (!(providerId === "runware" ? /^[A-Za-z0-9_.:@/-]{1,200}$/ : /^[A-Za-z0-9_.:/-]{1,200}$/).test(model.providerModelId)) continue;
+            if (!(["runware", "cloudflare"].includes(providerId) ? /^[A-Za-z0-9_.:@/-]{1,200}$/ : /^[A-Za-z0-9_.:/-]{1,200}$/).test(model.providerModelId)) continue;
             const existing = config.discoveredModels.find((entry) => entry.providerId === providerId && entry.providerModelId === model.providerModelId);
             if (existing) { existing.displayName = model.displayName ?? existing.displayName; existing.mediaType = model.mediaType ?? existing.mediaType; existing.discoveredAt = now; }
             else config.discoveredModels.push({ id: `discovered_${randomUUID()}`, providerId, providerModelId: model.providerModelId, displayName: model.displayName, mediaType: model.mediaType ?? "unknown", status: "unverified", discoveredAt: now });
@@ -348,15 +368,31 @@ export async function deleteCustomModel(modelId: string, mediaType: "image" | "v
 
 export function connectionFromEnv(providerId: ProviderId): ProviderConnectionContext | undefined {
     if (!isProviderId(providerId)) return undefined;
+    if (providerId === "ollama") {
+        const baseUrl = process.env.OLLAMA_BASE_URL?.trim();
+        const apiKey = process.env.OLLAMA_API_KEY?.trim();
+        if (!baseUrl && !apiKey) return undefined;
+        return { id: "env:ollama", providerId, ...(apiKey ? { secret: apiKey } : {}), metadata: { baseUrl: normalizeOllamaBaseUrl(baseUrl) } };
+    }
     const key = providerId === "google-ai-studio" ? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY
         : providerId === "google-vertex" ? process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? process.env.GOOGLE_CLOUD_CREDENTIALS
             : providerId === "vercel-ai-gateway" ? process.env.AI_GATEWAY_API_KEY
                 : providerId === "toapis" ? process.env.TOAPIS_API_KEY
                     : providerId === "magnific" ? process.env.MAGNIFIC_API_KEY
-                        : providerId === "runware" ? process.env.RUNWARE_API_KEY : undefined;
+                        : providerId === "runware" ? process.env.RUNWARE_API_KEY
+                            : providerId === "pollinations" ? process.env.POLLINATIONS_API_KEY
+                                : providerId === "huggingface" ? process.env.HF_TOKEN ?? process.env.HUGGINGFACE_HUB_TOKEN ?? process.env.HUGGINGFACE_API_KEY
+                                    : providerId === "together" ? process.env.TOGETHER_API_KEY
+                                        : providerId === "cloudflare" ? process.env.CLOUDFLARE_API_TOKEN
+                                            : providerId === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined;
     if (!key?.trim()) return undefined;
     const metadata: Record<string, unknown> = {};
     if (providerId === "google-vertex") { metadata.project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT; metadata.location = process.env.GOOGLE_CLOUD_LOCATION; metadata.veoLocation = process.env.GOOGLE_VEO_LOCATION; }
     if (providerId === "toapis") metadata.origin = process.env.TOAPIS_BASE_URL;
-    return { id: `env:${providerId}`, providerId, secret: key, metadata };
+    if (providerId === "cloudflare") {
+        const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+        if (!accountId) return undefined;
+        metadata.accountId = accountId;
+    }
+    return { id: `env:${providerId}`, providerId, secret: key.trim(), metadata };
 }

@@ -3,6 +3,12 @@ import { isProviderId } from "@/providers/definitions";
 import type { ProviderId } from "@/providers/types";
 
 const providerLogos = {
+    pollinations: "/providers/pollinations.svg",
+    ollama: "/providers/ollama.svg",
+    cloudflare: "/providers/cloudflare.svg",
+    together: "/providers/together.svg",
+    huggingface: "/providers/huggingface.svg",
+    openrouter: "/providers/openrouter.svg",
     "google-ai-studio": "/providers/google-ai-studio.png",
     "google-vertex": "/providers/google-vertex.svg",
     "vercel-ai-gateway": "/providers/vercel-ai-gateway.svg",

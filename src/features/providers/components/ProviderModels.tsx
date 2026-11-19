@@ -38,7 +38,7 @@ export function ProviderModels({ provider, catalog, connections, connected, relo
     const enabled = visible.filter(isEnabled);
     const disabled = visible.filter(entry => !isEnabled(entry));
     const candidates = catalog.discovered.filter(model => model.providerId === provider.id);
-    const supportsDiscovery = ["google-ai-studio", "vercel-ai-gateway", "runware"].includes(provider.id);
+    const supportsDiscovery = provider.discovery === "provider-api";
 
     async function toggle(entries: CatalogModel[], value: boolean) {
         setBusy(true); setNotice(null);
@@ -52,7 +52,7 @@ export function ProviderModels({ provider, catalog, connections, connected, relo
     async function discover() {
         setBusy(true); setNotice(null);
         try {
-            const connection = connections.filter(entry => entry.enabled && entry.secretConfigured).sort((a, b) => a.priority - b.priority)[0];
+            const connection = connections.filter(entry => entry.enabled && (provider.secretOptional || entry.secretConfigured)).sort((a, b) => a.priority - b.priority)[0];
             const result = await configRequest<{ discovered?: unknown[] }>("/api/catalog/discover", "POST", { providerId: provider.id, connectionId: connection?.id });
             await reload();
             setNotice({ error: false, text: t("syncSuccess", { count: result.discovered?.length ?? 0 }) });

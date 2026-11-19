@@ -1,7 +1,19 @@
 import type { CanonicalMediaInputs, CanonicalParams } from "@/models/canonical";
 import type { ModelCapabilities } from "@/models/capabilities/types";
 
-export type ProviderId = "magnific" | "google-ai-studio" | "google-vertex" | "vercel-ai-gateway" | "toapis" | "runware";
+export type ProviderId =
+    | "pollinations"
+    | "huggingface"
+    | "together"
+    | "cloudflare"
+    | "openrouter"
+    | "ollama"
+    | "google-ai-studio"
+    | "google-vertex"
+    | "vercel-ai-gateway"
+    | "toapis"
+    | "magnific"
+    | "runware";
 export type GenerationStatus = "CREATED" | "IN_PROGRESS" | "COMPLETED" | "FAILED" | "ERROR" | "CANCELLED";
 
 export interface GeneratedAsset {

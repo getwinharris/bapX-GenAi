@@ -11,6 +11,7 @@ export interface ProviderConnectionRecord {
     secretConfigured: boolean;
     lastHealth?: "unknown" | "healthy" | "unhealthy";
     lastHealthAt?: string;
+    lastQuotaSummary?: string;
     createdAt: string;
     updatedAt: string;
 }

@@ -82,7 +82,7 @@ test("removed Freepik connections and custom models cannot reenter the runtime c
         const definitions = loader.load("src/providers/definitions.ts");
         const catalog = loader.load("src/server/catalog/runtime.ts");
         assert.equal(definitions.isProviderId("freepik"), false);
-        assert.equal(definitions.PROVIDER_DEFINITIONS.length, 6);
+        assert.equal(definitions.PROVIDER_DEFINITIONS.length, 12);
         assert.deepEqual(Array.from(await store.listProviderConnections()), []);
         assert.equal(await store.getProviderConnection("retired_connection"), undefined);
         assert.equal(await store.selectProviderConnection("freepik"), undefined);
@@ -122,11 +122,13 @@ test("Studio lists only models from providers with enabled credentials", async (
             assert.equal((await catalog.getRuntimeCapabilityList(media)).length, 0);
             assert.ok((await catalog.getAllRuntimeCapabilities(media)).length > 0, "settings still expose disconnected models");
         }
-        for (const { id: providerId } of definitions.PROVIDER_DEFINITIONS) {
-            const first = await store.saveProviderConnection({ providerId, label: "Disabled", secret: "synthetic-hidden-key", enabled: false });
+        for (const def of definitions.PROVIDER_DEFINITIONS) {
+            const providerId = def.id;
+            const metadata = def.requiresAccountId ? { accountId: "a1b2c3d4e5f60718293a4b5c6d7e8f90" } : {};
+            const first = await store.saveProviderConnection({ providerId, label: "Disabled", secret: "synthetic-hidden-key", metadata, enabled: false });
             assert.equal((await store.getConnectedProviderIds()).has(providerId), false);
-            const second = await store.saveProviderConnection({ providerId, label: "Active", secret: "synthetic-active-key", enabled: true });
-            for (const media of ["image", "video"]) {
+            const second = await store.saveProviderConnection({ providerId, label: "Active", secret: "synthetic-active-key", metadata, enabled: true });
+            for (const media of def.mediaTypes) {
                 const models = await catalog.getRuntimeCapabilityList(media);
                 assert.ok(models.length > 0, `${providerId} has ${media} models`);
                 assert.ok(models.every(model => model.provider === providerId));
@@ -311,3 +313,39 @@ test("queued submission cannot bypass a newly saved connection override with an 
     assert.equal(await store.getProviderConnection(original.id, { forSubmission: true }), undefined, "Do not switch to an unintended account");
     assert.equal((await store.resolveProviderConnection("runware")).id, saved.id);
 });
+
+test("free keyless, local Ollama, Cloudflare Account ID and clearSecret workflows work end-to-end", async t => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "open-higgsfield-free-tiers-"));
+    t.after(() => fs.rm(directory, { recursive: true, force: true }));
+    const loader = createModuleLoader({ env: {
+        OPEN_HIGGSFIELD_STORAGE_DIR: directory,
+        PROVIDER_CONFIG_ENCRYPTION_KEY: "synthetic-provider-config-key-32-characters",
+    } });
+    const store = loader.load("src/server/config/provider-store.ts");
+
+    // Pollinations keyless connection works without a secret and can later add/clear a key.
+    const pollinations = await store.saveProviderConnection({ providerId: "pollinations", label: "Pollinations Free" });
+    assert.equal(pollinations.secretConfigured, false);
+    assert.equal((await store.getConnectedProviderIds()).has("pollinations"), true);
+    const resolvedFree = await store.resolveProviderConnection("pollinations");
+    assert.equal(resolvedFree.secret, undefined);
+
+    await store.saveProviderConnection({ id: pollinations.id, providerId: "pollinations", secret: "sk_poll_test" });
+    assert.equal((await store.resolveProviderConnection("pollinations")).secret, "sk_poll_test");
+    await store.saveProviderConnection({ id: pollinations.id, providerId: "pollinations", clearSecret: true });
+    assert.equal((await store.resolveProviderConnection("pollinations")).secret, undefined);
+
+    // Ollama validates and normalizes baseUrl cleanly without requiring a secret.
+    await assert.rejects(store.saveProviderConnection({ providerId: "ollama", label: "Bad URL", metadata: { baseUrl: "ftp://bad" } }), /ERR_OLLAMA_BASE_URL/);
+    const ollama = await store.saveProviderConnection({ providerId: "ollama", label: "Local", metadata: { baseUrl: "http://127.0.0.1:11434/" } });
+    assert.equal(ollama.metadata.baseUrl, "http://127.0.0.1:11434");
+
+    // Cloudflare requires both API token and Account ID.
+    await assert.rejects(store.saveProviderConnection({ providerId: "cloudflare", label: "Missing Acct", secret: "cf-tok" }), /ERR_CLOUDFLARE_ACCOUNT_ID_REQUIRED/);
+    const cf = await store.saveProviderConnection({ providerId: "cloudflare", label: "CF Free", secret: "cf-tok", metadata: { accountId: "a1b2c3d4e5f60718293a4b5c6d7e8f90" } });
+    await store.markProviderConnectionHealth(cf.id, "healthy", "10,000 Neurons/day · verified");
+    const savedCf = (await store.listProviderConnections()).find(c => c.id === cf.id);
+    assert.equal(savedCf.lastHealth, "healthy");
+    assert.equal(savedCf.lastQuotaSummary, "10,000 Neurons/day · verified");
+});
+

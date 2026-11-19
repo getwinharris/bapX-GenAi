@@ -70,16 +70,25 @@ export function ModelPicker({ mediaType, modelId, onModelChange, filterModel }: 
                             <p>{catalog.models.length === 0 ? t("noConnectedModels") : t("noModelsFound")}</p>
                             {catalog.models.length === 0 && <Link href={`/${locale}/settings`} className="mt-2 inline-block font-semibold text-primary hover:underline">{t("manageProviders")}</Link>}
                         </div> : <div className="space-y-3">
-                            {groups.map(group => <div key={group}>
-                                <div className="mb-2 flex items-center gap-2"><ProviderMark id={group} /><p className="text-xs font-semibold text-muted-foreground">{PROVIDER_DEFINITIONS.find(provider => provider.id === group)?.label ?? group}</p></div>
-                                <div className="space-y-0.5">{visible.filter(model => model.provider === group).map(model => <button
-                                    key={model.id} data-model-id={model.id} type="button" aria-pressed={model.id === modelId} title={modelLabel(model.label)}
-                                    onClick={() => { onModelChange(model.id); changeOpen(false); }}
-                                    className={`flex w-full items-center justify-between gap-2 rounded-[10px] min-h-11 px-2.5 py-2 text-left text-xs transition-colors focus-visible:outline-2 focus-visible:outline-primary ${model.id === modelId ? "bg-primary/10 font-bold text-primary" : "font-medium text-[#f4f7fb] hover:bg-white/[.06]"}`}>
-                                    <span className="min-w-0 break-words">{modelLabel(model.label)}</span>
-                                    {model.id === modelId && <Check className="size-3.5 shrink-0" />}
-                                </button>)}</div>
-                            </div>)}
+                            {groups.map(group => {
+                                const def = PROVIDER_DEFINITIONS.find(provider => provider.id === group);
+                                return <div key={group}>
+                                    <div className="mb-2 flex items-start gap-2.5 px-1">
+                                        <ProviderMark id={group} />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-xs font-semibold leading-tight text-muted-foreground">{def?.label ?? group}</p>
+                                            {def && <p className="mt-0.5 text-[11px] leading-snug tabular-nums text-muted-foreground/75">{def.freeTier.headline}</p>}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-0.5">{visible.filter(model => model.provider === group).map(model => <button
+                                        key={model.id} data-model-id={model.id} type="button" aria-pressed={model.id === modelId} title={modelLabel(model.label)}
+                                        onClick={() => { onModelChange(model.id); changeOpen(false); }}
+                                        className={`flex w-full items-center justify-between gap-2 rounded-[10px] min-h-11 px-2.5 py-2 text-left text-xs transition-colors focus-visible:outline-2 focus-visible:outline-primary ${model.id === modelId ? "bg-primary/10 font-bold text-primary" : "font-medium text-[#f4f7fb] hover:bg-white/[.06]"}`}>
+                                        <span className="min-w-0 break-words">{modelLabel(model.label)}</span>
+                                        {model.id === modelId && <Check className="size-3.5 shrink-0" />}
+                                    </button>)}</div>
+                                </div>;
+                            })}
                         </div>}
                 </div>
             </div>
